@@ -7,6 +7,8 @@ import { getAddress, parseUnits, solidityKeccak256 } from "ethers/lib/utils"; //
 
 // Output file path
 const outputPath: string = path.join(__dirname, "../merkle.json");
+const proofsPath: string = path.join(__dirname, "../proofs.json");
+
 
 // Airdrop recipient addresses and scaled token values
 type AirdropRecipient = {
@@ -16,10 +18,12 @@ type AirdropRecipient = {
   value: string;
 };
 
+
+
 export default class Generator {
   // Airdrop recipients
   recipients: AirdropRecipient[] = [];
-
+  proofs: any[] = [];
   /**
    * Setup generator
    * @param {number} decimals of token
@@ -58,9 +62,7 @@ export default class Generator {
     // Generate merkle tree
     const merkleTree = new MerkleTree(
       // Generate leafs
-      this.recipients.map(({ address, value }) =>
-        this.generateLeaf(address, value)
-      ),
+      this.recipients.map(({ address, value }) => this.generateLeaf(address, value)),
       // Hashing function
       keccak256,
       { sortPairs: true }
@@ -69,6 +71,28 @@ export default class Generator {
     // Collect and log merkle root
     const merkleRoot: string = merkleTree.getHexRoot();
     logger.info(`Generated Merkle root: ${merkleRoot}`);
+    let indices = Array.from(Array(merkleTree.getLeafCount()).keys())
+    // console.log("indeces = ", indices.length)
+    // this.proofs = merkleTree.getProof(merkleTree.getHexLeaves()[0]);
+    // console.log("leaves = ", merkleTree.getHexLeaves())
+    let lvs =  merkleTree.getHexLeaves();
+    for(let key in lvs){
+      // console.log(lvs[key])
+      // console.log("leaf proof = ", merkleTree.getHexProof(lvs[key]));
+      this.proofs.push(merkleTree.getHexProof(lvs[key]));
+    }
+    console.log("proofs = ", this.proofs.length)
+    console.log("diamond leaf", this.generateLeaf(getAddress("0x5513D4Efd95A19aeF075278d4189D042332aF440"), parseUnits("10000", 18).toString()));
+    console.log("leaf3300"," ++ ", merkleTree.getLeaf(330));
+    // for(let i=0; i<merkleTree.getLeafCount(); i++){
+    //   console.log(i," ++ ", merkleTree.getLeaf(i));
+
+    // };
+
+    // console.log("first diamond user proof", merkleTree.getProof(merkleTree.getLeaf(330)));
+    console.log("first diamond user proof", merkleTree.getHexProof(merkleTree.getLeaf(330)));
+
+
 
     // Collect and save merkle tree + root
     await fs.writeFileSync(
@@ -80,6 +104,16 @@ export default class Generator {
         tree: merkleTree
       })
     );
-    logger.info("Generated merkle tree and root saved to Merkle.json.");
+    logger.info("Generated merkle tree and root saved to merkle.json.");
+
+    // Collect and save merkle tree + root
+    await fs.writeFileSync(
+      // Output to merkle.json
+      proofsPath,
+      // Root + full tree
+      JSON.stringify(this.proofs)
+    );
+    logger.info("Generated merkle proofs and saved to proofs.json.");
+
   }
 }

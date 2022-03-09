@@ -3,87 +3,80 @@ pragma solidity >=0.8.0;
 
 /// ============ Imports ============
 
-import { ERC20 } from "@rari-capital/solmate/src/tokens/ERC20.sol"; // Solmate: ERC20
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol"; // OZ: IERC20
 import { MerkleProof } from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol"; // OZ: MerkleProof
-import "hardhat/console.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol"; // OZ: Ownable
 
 /// @title MerkleClaimERC20
 /// @notice ERC20 claimable by members of a merkle tree
-/// @author Anish Agnihotri <contact@anishagnihotri.com>
-/// @dev Solmate ERC20 includes unused _burn logic that can be removed to optimize deployment cost
-contract MerkleClaimERC20 is ERC20 {
+contract MerkleClaimERC20 is Ownable {
+    /// ============ Immutable storage ============
 
-  /// ============ Immutable storage ============
+    /// @notice ERC20-claimee inclusion root
+    bytes32 public immutable merkleRoot;
+    IERC20 public immutable token;
 
-  /// @notice ERC20-claimee inclusion root
-  bytes32 public immutable merkleRoot;
+    /// ============ Mutable storage ============
 
-  /// ============ Mutable storage ============
+    /// @notice Mapping of addresses who have claimed tokens
+    mapping(address => bool) public hasClaimed;
 
-  /// @notice Mapping of addresses who have claimed tokens
-  mapping(address => bool) public hasClaimed;
+    /// ============ Errors ============
 
-  /// ============ Errors ============
+    /// @notice Thrown if address has already claimed
+    error AlreadyClaimed();
+    /// @notice Thrown if address/amount are not part of Merkle tree
+    error NotInMerkle();
 
-  /// @notice Thrown if address has already claimed
-  error AlreadyClaimed();
-  /// @notice Thrown if address/amount are not part of Merkle tree
-  error NotInMerkle();
+    /// ============ Constructor ============
 
-  /// ============ Constructor ============
+    /// @notice Creates a new MerkleClaimERC20 contract
+    /// @param _merkleRoot of claimees
+    /// @param _token ERC20 contract for claims
+    constructor(bytes32 _merkleRoot, address _token) {
+        merkleRoot = _merkleRoot; // Update root
+        token = IERC20(_token); // Update token
+    }
 
-  /// @notice Creates a new MerkleClaimERC20 contract
-  /// @param _name of token
-  /// @param _symbol of token
-  /// @param _decimals of token
-  /// @param _merkleRoot of claimees
-  constructor(
-    string memory _name,
-    string memory _symbol,
-    uint8 _decimals,
-    bytes32 _merkleRoot
-  ) ERC20(_name, _symbol, _decimals) {
-    console.log("_merkle root = ");
-    console.logBytes32(_merkleRoot);
-    merkleRoot = _merkleRoot; // Update root
-  }
+    /// ============ Events ============
 
-  /// ============ Events ============
+    /// @notice Emitted after a successful token claim
+    /// @param to recipient of claim
+    /// @param amount of tokens claimed
+    event Claim(address indexed to, uint256 amount);
 
-  /// @notice Emitted after a successful token claim
-  /// @param to recipient of claim
-  /// @param amount of tokens claimed
-  event Claim(address indexed to, uint256 amount);
+    /// ============ Functions ============
 
-  /// ============ Functions ============
+    /// @notice Allows claiming tokens if address is part of merkle tree
+    /// @param to address of claimee
+    /// @param amount of tokens owed to claimee
+    /// @param proof merkle proof to prove address and amount are in tree
+    function claim(
+        address to,
+        uint256 amount,
+        bytes32[] calldata proof
+    ) external {
+        // Throw if address has already claimed tokens
+        if (hasClaimed[to]) revert AlreadyClaimed();
+        // Verify merkle proof, or revert if not in tree
+        bytes32 leaf = keccak256(abi.encodePacked(to, amount));
+        bool isValidLeaf = MerkleProof.verify(proof, merkleRoot, leaf);
+        if (!isValidLeaf) revert NotInMerkle();
 
-  /// @notice Allows claiming tokens if address is part of merkle tree
-  /// @param to address of claimee
-  /// @param amount of tokens owed to claimee
-  /// @param proof merkle proof to prove address and amount are in tree
-  function claim(address to, uint256 amount, bytes32[] calldata proof) external {
-    // Throw if address has already claimed tokens
-    if (hasClaimed[to]) revert AlreadyClaimed();
-    console.log("Hi from token calim");
-    // Verify merkle proof, or revert if not in tree
-    console.logBytes(abi.encodePacked(to, amount));
-    bytes32 leaf = keccak256(abi.encodePacked(to, amount));
-    console.log("Leaf = ");
-    console.logBytes32(leaf);
-    console.logBytes32(proof[0]);
+        // Set address to claimed
+        hasClaimed[to] = true;
 
-    console.log("to = ", to);
-    console.log("amount = ", amount);
-    bool isValidLeaf = MerkleProof.verify(proof, merkleRoot, leaf);
-    if (!isValidLeaf) revert NotInMerkle();
+        // Transfer tokens to address
+        token.transfer(to, amount);
 
-    // Set address to claimed
-    hasClaimed[to] = true;
+        // Emit claim event
+        emit Claim(to, amount);
+    }
 
-    // Mint tokens to address
-    _mint(to, amount);
-
-    // Emit claim event
-    emit Claim(to, amount);
-  }
+    /// @notice Forwards stuck ERC20s to owner
+    /// @param _token ERC20 contract to forward to owner
+    /// @param _amount of tokens to forward
+    function forwardERC20s(IERC20 _token, uint256 _amount) public onlyOwner {
+        _token.transfer(msg.sender, _amount);
+    }
 }
